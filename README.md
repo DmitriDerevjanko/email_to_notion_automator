@@ -12,6 +12,12 @@ This system automates the process of processing incoming emails and adding data 
 
 ---
 
+## System Diagram
+
+This diagram provides an overview of the system architecture:
+
+![System Diagram](./assets/system-diagram.jpg)
+
 ## Architectural Levels
 
 ### Input Layer
@@ -53,7 +59,7 @@ This system automates the process of processing incoming emails and adding data 
                                                              |
                                                          +---v----+
                                                          |  Notion |
-                                                         | Database |
+                                                         | Database|
                                                          +---------+
 
 
