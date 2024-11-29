@@ -12,11 +12,6 @@ This system automates the process of processing incoming emails and adding data 
 
 ---
 
-## System Diagram
-
-This diagram provides an overview of the system architecture:
-
-![System Diagram](./assets/system-diagram.jpg)
 
 ## Architectural Levels
 
@@ -50,53 +45,29 @@ This diagram provides an overview of the system architecture:
 
 ## Diagrams
 
-### Component Diagram
-```plaintext
-+-------------------+       +-------------------+       +----------------------+
-|     IMAP Server   |       |  Data Extraction  |       |  Notion Integration  |
-| (Fetch Emails)    | ----> |  (Parse Emails)   | ----> |    (Work with API)   |
-+-------------------+       +-------------------+       +----------------------+
-                                                             |
-                                                         +---v----+
-                                                         |  Notion |
-                                                         | Database|
-                                                         +---------+
+## Component Diagram
 
+This diagram provides an overview of the system components:
 
+![Component Diagram](./assets/component-diagram.jpg)
 
-### Sequence Diagram
+## Sequence Diagram
 
+This diagram demonstrates the step-by-step process of the system:
 
-User                IMAP Server             Script                     Notion Database
- |                        |                      |                               |
- |------ Check emails --->|                      |                               |
- |                        |-- Fetch emails -->   |                               |
- |                        |                      |-- Parse email body ---------> |
- |                        |                      |-- Extract data -------------> |
- |                        |                      |-- Find existing record -----> |
- |                        |                      |-- Create/Update record -----> |
- |                        |                      |                               |
+![Sequence Diagram](./assets/sequence-diagram.jpg)
 
-### Data Flow Diagram
+## Data Flow Diagram
 
+This diagram demonstrates the step-by-step process of the system:
 
+![Data Flow Diagram](./assets/data-flow-diagram.jpg)
 
-+---------------------+
-| Incoming Email      |
-| (IMAP Server)       |
-+---------------------+
-           |
-           v
-+---------------------+        +--------------------+
-| Data Extraction     | -----> | Notion Integration |
-| (Parse Content)     |        | (Work with API)    |
-+---------------------+        +--------------------+
-           |
-           v
-+---------------------+
-| Email Notification  |
-| (Send Status)       |
-+---------------------+
+## System Diagram
+
+This diagram provides an overview of the system architecture:
+
+![System Diagram](./assets/system-diagram.jpg)
 
 
 ## Key Components and Technologies
@@ -145,6 +116,5 @@ User                IMAP Server             Script                     Notion Da
 - **ERROR**: Logs issues during email processing or API interactions.
 
 ### Example Logs
-```plaintext
 2024-11-29 10:00:15 - INFO - Successfully added company: Example OÜ to the Notion database.
 2024-11-29 10:01:20 - ERROR - Failed to process email: Invalid registry code.
