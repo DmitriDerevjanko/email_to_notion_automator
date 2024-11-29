@@ -49,19 +49,19 @@ This system automates the process of processing incoming emails and adding data 
 
 This diagram provides an overview of the system components:
 
-![Component Diagram](./assets/component-diagram.jpg)
+![Component Diagram](./assets/component-diagram.png)
 
 ## Sequence Diagram
 
 This diagram demonstrates the step-by-step process of the system:
 
-![Sequence Diagram](./assets/sequence-diagram.jpg)
+![Sequence Diagram](./assets/sequence-diagram.png)
 
 ## Data Flow Diagram
 
 This diagram demonstrates the step-by-step process of the system:
 
-![Data Flow Diagram](./assets/data-flow-diagram.jpg)
+![Data Flow Diagram](./assets/data-flow-diagram.png)
 
 ## System Diagram
 
