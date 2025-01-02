@@ -1,5 +1,3 @@
-# notion_utils.py
-
 import logging
 import re
 import requests
@@ -23,9 +21,16 @@ from config import (
 notion = Client(auth=NOTION_API_KEY)
 
 def normalize_text(text):
+    """
+    Normalizes text to NFC Unicode form.
+    """
     return unicodedata.normalize('NFC', text)
 
 def normalize_company_name(name):
+    """
+    Removes certain prefixes (AS, OÜ, SAS, MTÜ) from a company name, 
+    and ensures standard abbreviations. 
+    """
     processed_name = name.strip()
     prefix_regex = re.compile(r'^(AS|OÜ|SAS|MTÜ)[\s\.-]*', re.IGNORECASE)
     patterns = [
@@ -57,8 +62,10 @@ def normalize_company_name(name):
     processed_name = processed_name.replace(',', '')
     return processed_name.strip()
 
-# Function to get the database name
 def get_database_name(database_id):
+    """
+    Retrieves the name of a Notion database by ID.
+    """
     try:
         response = notion.databases.retrieve(database_id=database_id)
         title = response.get('title', [])
@@ -71,8 +78,10 @@ def get_database_name(database_id):
         logging.error(f"Error retrieving database name: {e}")
         return "Unknown Database"
 
-# Fetch all entries from a Notion database
 def get_database_entries(database_id):
+    """
+    Fetches all entries from a Notion database by paging through results.
+    """
     try:
         entries = []
         next_cursor = None
@@ -81,7 +90,7 @@ def get_database_entries(database_id):
             response = notion.databases.query(database_id=database_id, start_cursor=next_cursor)
             results = response.get('results', [])
             entries.extend(results)
-            logging.info(f"Fetched {len(results)} entries in this batch. Total entries so far: {len(entries)}")
+            logging.info(f"Fetched {len(results)} entries in this batch. Total so far: {len(entries)}")
             if not response.get('has_more'):
                 logging.info("No more pages to fetch.")
                 break
@@ -93,8 +102,10 @@ def get_database_entries(database_id):
         logging.error(f"Error fetching database entries: {e}", exc_info=True)
         return []
 
-# Get database properties
 def get_database_properties(database_id):
+    """
+    Retrieves the properties of a Notion database by ID.
+    """
     try:
         response = notion.databases.retrieve(database_id=database_id)
         properties = response.get('properties', {})
@@ -104,9 +115,11 @@ def get_database_properties(database_id):
         logging.error(f"Error retrieving database properties: {e}", exc_info=True)
         return {}
 
-
-# Find an entry in the database by registration code
 def find_matching_entry_by_registry_code(registration_code, database_id, registry_code_property_name):
+    """
+    Searches for an entry in the given database, 
+    using a filter on the specified 'registry_code_property_name' (number type).
+    """
     logging.info(f"Searching for entry with {registry_code_property_name} = {registration_code} in database {database_id}")
     try:
         response = notion.databases.query(
@@ -131,10 +144,77 @@ def find_matching_entry_by_registry_code(registration_code, database_id, registr
         logging.error(f"Error querying database with filter: {e}", exc_info=True)
         return None
 
+def link_contact_to_company(contact_id: str, company_page_id: str) -> None:
+    """
+    Ensures that the contact in the People database is linked to the given company page.
+    If 'Organisation' is a multi-relation property, this will append the new company
+    to the existing list of relations without overwriting.
+    """
+    try:
+        contact_page = notion.pages.retrieve(contact_id)
+        existing_relations = contact_page["properties"]["Organisation"]["relation"]
+        if any(r["id"] == company_page_id for r in existing_relations):
+            logging.info(f"Contact {contact_id} is already linked to company {company_page_id}. No update needed.")
+            return
+        updated_relations = existing_relations + [{"id": company_page_id}]
+        notion.pages.update(
+            page_id=contact_id,
+            properties={
+                "Organisation": {
+                    "relation": updated_relations
+                }
+            }
+        )
+        logging.info(f"Successfully linked contact {contact_id} to company {company_page_id}.")
+    except Exception as e:
+        logging.error(f"Error linking contact {contact_id} to company {company_page_id}: {e}", exc_info=True)
+
+def create_new_contact_in_people_database(name, email_address, phone_number, organisation_id, people_database_id):
+    """
+    Creates a new contact in the People database with optional initial Organisation relation.
+    """
+    logging.info(f"Creating new contact in People database for name: {name}")
+    try:
+        properties = {
+            "Name": {
+                "title": [
+                    {
+                        "text": {
+                            "content": name
+                        }
+                    }
+                ]
+            },
+            "Email": {
+                "email": email_address
+            },
+            "Phone": {
+                "phone_number": phone_number
+            },
+            "Organisation": {
+                "relation": [{"id": organisation_id}] if organisation_id else []
+            }
+        }
+        response = notion.pages.create(
+            parent={"database_id": people_database_id},
+            properties=properties
+        )
+        new_contact_id = response["id"]
+        logging.info(f"Created new contact for name {name} with ID {new_contact_id}")
+        return new_contact_id
+    except Exception as e:
+        logging.error(f"Error creating new contact in People database: {e}", exc_info=True)
+        return None
 
 def create_new_entry_in_related_database(company_name, registration_code, related_database_id):
-    logging.info(f"Creating new entry in related database for company: {company_name} with Registrikood: {registration_code}")
+    """
+    Creates a new page in the 'Related' database for a company.
+    Also scrapes extended data from ariregister to populate additional fields.
+    """
+    logging.info(f"Creating new entry in Related DB for company: {company_name} with registry code: {registration_code}")
     try:
+        extended_data = scrape_ariregister_data_sync(registration_code)
+
         properties = {
             "Company Name": {
                 "title": [
@@ -147,24 +227,59 @@ def create_new_entry_in_related_database(company_name, registration_code, relate
             },
             "Registrikood": {
                 "number": int(registration_code)
-            },
+            }
         }
+
+        if extended_data['location']:
+            properties["Location"] = {
+                "select": {
+                    "name": extended_data['location']
+                }
+            }
+        if extended_data['main_activity']:
+            properties["Main field of activity"] = {
+                "rich_text": [
+                    {
+                        "text": {
+                            "content": extended_data['main_activity']
+                        }
+                    }
+                ]
+            }
+        if extended_data['main_emtak_code']:
+            properties["EMTAK"] = {
+                "multi_select": [
+                    {
+                        "name": extended_data['main_emtak_code']
+                    }
+                ]
+            }
+        if extended_data['employees_count'] is not None:
+            if isinstance(extended_data['employees_count'], int):
+                properties["Employees"] = {
+                    "number": extended_data['employees_count']
+                }
+            else:
+                logging.warning(f"Employees count is not an integer: {extended_data['employees_count']}")
+
+        logging.info(f"Notion properties for this new entry: {properties}")
+
         response = notion.pages.create(
             parent={"database_id": related_database_id},
             properties=properties,
         )
         new_entry_id = response["id"]
-        logging.info(f"Successfully created new entry with ID: {new_entry_id} in related database.")
+        logging.info(f"Successfully created new entry with ID: {new_entry_id} in Related DB.")
         return new_entry_id
+
     except Exception as e:
-        logging.error(f"Error creating new entry in related database: {e}", exc_info=True)
+        logging.error(f"Error creating new entry in Related DB: {e}", exc_info=True)
         return None
 
-
-
-
-# Get the maximum value of 'Jrk' from the database (number field version)
 def get_max_jrk_number(database_id):
+    """
+    Returns the maximum value found in the 'Jrk' (number) property in the specified database.
+    """
     logging.info(f"Getting max Jrk number from database {database_id}")
     try:
         response = notion.databases.query(
@@ -178,7 +293,7 @@ def get_max_jrk_number(database_id):
         results = response.get('results', [])
         if results:
             max_jrk = results[0]['properties']['Jrk']['number']
-            logging.info(f"Max Jrk number value found: {max_jrk}")
+            logging.info(f"Max Jrk value found: {max_jrk}")
             return max_jrk
         else:
             logging.info("No entries found in the database.")
@@ -187,15 +302,17 @@ def get_max_jrk_number(database_id):
         logging.error(f"Error getting max Jrk number: {e}", exc_info=True)
         return 0
 
-
-# Add company information to the main database
 def add_company_to_main_database(
     email_data, email_received_date, related_entry_id,
     service_counts, language, include_jrk=False
 ):
+    """
+    Creates a new record in the Main database for the given company 
+    (if it doesn't already exist) and links it to the 'Related DB' entry (related_entry_id).
+    """
     database_id = MAIN_DATABASE_ID
     try:
-        logging.info(f"Starting to add company '{email_data['company_name']}' to the main database.")
+        logging.info(f"Starting to add company '{email_data['company_name']}' to the Main database.")
         logging.info(f"Email data received: {email_data}")
         logging.info(f"Related entry ID: {related_entry_id}")
 
@@ -220,10 +337,13 @@ def add_company_to_main_database(
 
         if contact_name:
             logging.info(f"Looking for contact name: {contact_name}")
-            related_contact = find_matching_contact_by_name(contact_name, PEOPLE_DATABASE_ID)
-            if related_contact:
-                related_contact_id = related_contact["id"]
-                logging.info(f"Found related contact ID: {related_contact_id}")
+            existing_contact = find_matching_contact_by_name(contact_name, PEOPLE_DATABASE_ID)
+            if existing_contact:
+                related_contact_id = existing_contact["id"]
+                logging.info(f"Found existing contact with ID: {related_contact_id}")
+                # Link the existing contact to the new or existing company
+                if related_entry_id:
+                    link_contact_to_company(related_contact_id, related_entry_id)
             else:
                 logging.info(f"Creating new contact for name: {contact_name}")
                 related_contact_id = create_new_contact_in_people_database(
@@ -239,7 +359,7 @@ def add_company_to_main_database(
             email_data["registration_code"], database_id, "Registrikood"
         )
         if existing_entry:
-            logging.info(f"Company {normalized_company_name} already exists in the main database. Skipping creation.")
+            logging.info(f"Company {normalized_company_name} already exists in the Main database. Skipping creation.")
             return
 
         properties = {
@@ -314,7 +434,7 @@ def add_company_to_main_database(
         logging.info(f"Final properties for new entry: {properties}")
 
         new_page = notion.pages.create(parent={"database_id": database_id}, properties=properties)
-        logging.info(f"Successfully added company: {normalized_company_name} to the main database. Entry ID: {new_page['id']}")
+        logging.info(f"Successfully added company: {normalized_company_name} to the Main database. Entry ID: {new_page['id']}")
 
         item_url = new_page.get('url', '')
         database_name = get_database_name(database_id)
@@ -322,14 +442,15 @@ def add_company_to_main_database(
         send_success_email(email_data["registration_code"], email_data, recipients, item_url, database_name)
 
     except Exception as e:
-        error_message = f"Failed to add company {email_data['company_name']} to main database: {str(e)}"
+        error_message = f"Failed to add company {email_data['company_name']} to Main database: {str(e)}"
         recipients = DATABASE_RESPONSIBLES.get(database_id, DEFAULT_RECIPIENTS)
         send_error_email(email_data["registration_code"], error_message, email_data, recipients)
         logging.error(f"Skipping company {email_data['company_name']} due to error: {error_message}")
 
-
-# Retrieve the location (county) by registry code using Playwright
 def get_location_from_registry_playwright(registry_code):
+    """
+    Uses Playwright to scrape the location (county) from ariregister.rik.ee by registry code.
+    """
     url = f"https://ariregister.rik.ee/est/company/{registry_code}"
     try:
         with sync_playwright() as p:
@@ -344,19 +465,21 @@ def get_location_from_registry_playwright(registry_code):
                 )
                 if address_element:
                     cleaned_address = address_element.split(" Ava kaart")[0]
-                    location = match_location(cleaned_address)
-                    return location
+                    loc = match_location(cleaned_address)
+                    return loc
                 else:
                     logging.error(f"Address element not found for registry code {registry_code}")
             else:
-                logging.error(f"Aadress label not found for registry code {registry_code}")
+                logging.error(f'Aadress label not found for registry code {registry_code}')
         return None
     except Exception as e:
         logging.error(f"Failed to scrape location for registry code {registry_code}: {str(e)}")
         return None
 
-# Check VTA remnant and return formatted result string
 def check_vta_remnant(reg_code):
+    """
+    Checks VTA (de minimis aid) data from rar.fin.ee for the given reg code.
+    """
     url = f"https://rar.fin.ee/rar/DMAremnantPage.action?regCode={reg_code}&name=&method:input=Kontrolli%2Bj%C3%A4%C3%A4ki&op=Kontrolli+j%C3%A4%C3%A4ki&antibot_key=7sGg3EvZfMwcaN_T3r2vjjczukTKLWUaUV6JuMTvf6k"
     response = requests.get(url)
     if response.status_code == 200:
@@ -376,17 +499,19 @@ def check_vta_remnant(reg_code):
                         result = (
                             f"ok({current_date} - {remnant})"
                             if remnant_value > 5000
-                            else f"vähe({current_date} - {remnant})"
+                            else f"low({current_date} - {remnant})"
                         )
                         logging.info(f"VTA check result: {result}")
                         return result
         logging.warning(f"No VTA remnant found for reg code {reg_code}")
-        return "VTA informatsiooni ei leitud"
+        return "No VTA information found"
     logging.error(f"Error fetching VTA data for reg code {reg_code}")
-    return "Viga VTA andmete hankimisel"
+    return "Error retrieving VTA data"
 
-# Match the address to a valid county
 def match_location(address):
+    """
+    Maps the raw 'Aadress' string to a known county name if found.
+    """
     valid_locations = {
         "Harju maakond": "Harjumaa",
         "Tartu maakond": "Tartumaa",
@@ -408,10 +533,12 @@ def match_location(address):
     for key in valid_locations:
         if key in address:
             return valid_locations[key]
-    return "Asukohta ei leitud"
+    return "Location not found"
 
-# Find a contact in the "People" database by name
 def find_matching_contact_by_name(name, database_id):
+    """
+    Searches for a contact by 'Name' (title) in the People database.
+    """
     logging.info(f"Searching for contact with Name = {name} in database {database_id}")
     try:
         response = notion.databases.query(
@@ -436,54 +563,14 @@ def find_matching_contact_by_name(name, database_id):
         logging.error(f"Error querying database with filter: {e}", exc_info=True)
         return None
 
-
-
-# Create a new contact in the "People" database if no match is found
-def create_new_contact_in_people_database(name, email_address, phone_number, organisation_id, people_database_id):
-    logging.info(f"Creating new contact in people database for name: {name}")
-    try:
-        properties = {
-            "Name": {
-                "title": [
-                    {
-                        "text": {
-                            "content": name
-                        }
-                    }
-                ]
-            },
-            "Email": {
-                "email": email_address
-            },
-            "Phone": {
-                "phone_number": phone_number
-            },
-            "Organisation": {
-                "relation": [
-                    {
-                        "id": organisation_id
-                    }
-                ]
-            }
-        }
-        response = notion.pages.create(
-            parent={"database_id": people_database_id},
-            properties=properties
-        )
-        new_contact_id = response["id"]
-        logging.info(f"Created new contact for name {name} with ID {new_contact_id}")
-        return new_contact_id
-    except Exception as e:
-        logging.error(f"Error creating new contact in people database: {e}", exc_info=True)
-        return None
-
-
-# Add new entries to additional databases based on service name and count
 def add_project_to_additional_databases(service_name, email_data, count, email_received_date, recipients):
-    service_config = SERVICE_CONFIG.get(service_name)
-    if service_config:
-        property_name_key = normalize_text(service_config["property_name"])
-        database_id = service_config["database_id"]
+    """
+    Creates new project entries in additional (service-specific) databases based on the provided 'service_name'.
+    """
+    service_config_item = SERVICE_CONFIG.get(service_name)
+    if service_config_item:
+        property_name_key = normalize_text(service_config_item["property_name"])
+        database_id = service_config_item["database_id"]
 
         add_project(
             email_data,
@@ -492,7 +579,7 @@ def add_project_to_additional_databases(service_name, email_data, count, email_r
             database_id=database_id,
             main_database_id=MAIN_DATABASE_ID,
             service_name=service_name,
-            project_name_template=service_config["project_name_template"],
+            project_name_template=service_config_item["project_name_template"],
             property_name_key=property_name_key,
             recipients=recipients
         )
@@ -503,8 +590,11 @@ def add_project(
     email_data, count, email_received_date, database_id, main_database_id,
     service_name, project_name_template, property_name_key, recipients
 ):
+    """
+    Creates one or multiple project entries in the specified service database.
+    Each entry is linked to the main DB page and the related DB page (company).
+    """
     database_properties = get_database_properties(database_id)
-
     normalized_properties = {normalize_text(k): k for k in database_properties.keys()}
 
     logging.info(f"Available properties in {service_name} database (normalized): {list(normalized_properties.keys())}")
@@ -517,7 +607,6 @@ def add_project(
         actual_property_name = normalized_properties[property_name_key]
 
         location = get_location_from_registry_playwright(email_data["registration_code"])
-
         if location is None:
             raise ValueError("Invalid registry code or scraping error")
 
@@ -527,15 +616,15 @@ def add_project(
         related_contact_id = None
 
         if contact_name:
-            related_contact = find_matching_contact_by_name(contact_name, PEOPLE_DATABASE_ID)
-            if related_contact:
-                related_contact_id = related_contact["id"]
+            existing_contact = find_matching_contact_by_name(contact_name, PEOPLE_DATABASE_ID)
+            if existing_contact:
+                related_contact_id = existing_contact["id"]
             else:
                 related_contact_id = create_new_contact_in_people_database(
                     name=contact_name,
                     email_address=email_data.get("email_address", ""),
                     phone_number=email_data.get("phone_number", ""),
-                    organisation_id=None,  # Update if necessary
+                    organisation_id=None,  # We'll link later if needed
                     people_database_id=PEOPLE_DATABASE_ID
                 )
 
@@ -560,9 +649,9 @@ def add_project(
 
         if main_entry:
             main_entry_id = main_entry["id"]
-            logging.info(f"Company {email_data['company_name']} exists in the main database.")
+            logging.info(f"Company {email_data['company_name']} exists in the Main database.")
         else:
-            logging.info(f"Company {email_data['company_name']} does not exist in the main database. Creating new entry.")
+            logging.info(f"Company {email_data['company_name']} does not exist in the Main database. Creating new entry.")
             add_company_to_main_database(
                 email_data,
                 email_received_date,
@@ -647,16 +736,13 @@ def add_project(
                     }
 
                 new_page = notion.pages.create(parent={"database_id": database_id}, properties=properties)
-                logging.info(
-                    f"Added '{service_name}' project for {normalized_company_name} with Jrk {next_jrk}."
-                )
+                logging.info(f"Added '{service_name}' project for {normalized_company_name} with Jrk {next_jrk}.")
 
                 item_url = new_page.get('url', '')
                 item_urls.append(item_url)
 
                 next_jrk += 1  
                 project_count += 1 
-
             except Exception as e:
                 logging.error(f"Error adding to '{service_name}' database: {e}")
 
@@ -672,8 +758,11 @@ def add_project(
         send_error_email(email_data["registration_code"], error_message, email_data, recipients)
         logging.error(f"Skipping project for company {email_data['company_name']} due to error: {error_message}")
 
-# Count how many times this related_entry_id is present in the given database
 def count_company_entries_in_database(database_id, related_entry_id):
+    """
+    Counts how many entries in the specified database have a 'Company Name' relation
+    that includes the given related_entry_id.
+    """
     logging.info(f"Counting entries for related_entry_id {related_entry_id} in database {database_id}")
     try:
         filter_params = {
@@ -693,3 +782,67 @@ def count_company_entries_in_database(database_id, related_entry_id):
         logging.error(f"Error counting company entries in database: {e}", exc_info=True)
         return 0
 
+def scrape_ariregister_data_sync(registry_code: str) -> dict:
+    """
+    Synchronously scrapes extended info from ariregister.rik.ee using sync_playwright.
+    Returns a dictionary, for example:
+    {
+      'main_activity': str,
+      'main_emtak_code': str,
+      'employees_count': int,
+      'address': str,
+      'location': str
+    }
+    """
+    url = f"https://ariregister.rik.ee/est/company/{registry_code}"
+    data = {
+        'main_activity': None,
+        'main_emtak_code': None,
+        'employees_count': None,
+        'address': None,
+        'location': None,
+    }
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(url)
+
+        # Main activity & EMTAK
+        main_activity_row = page.locator('#areas-of-activity-table tbody tr').filter(has_text="Põhitegevusala")
+        if main_activity_row.count() > 0:
+            try:
+                data['main_activity'] = main_activity_row.locator('td.activity-text a').inner_text().strip()
+            except:
+                pass
+            try:
+                data['main_emtak_code'] = main_activity_row.locator('td.text-nowrap.px-1').inner_text().strip()
+            except:
+                pass
+
+        # Employees count
+        employees_selector = (
+            '//div[@class="row mt-4"]'
+            '[div[contains(@class,"text-muted") and contains(text(),"Töötajate arv")]]'
+            '/div[@class="col font-weight-bold"]'
+        )
+        employees_el = page.locator(employees_selector)
+        if employees_el.count() > 0:
+            employees_text = employees_el.inner_text().strip()
+            try:
+                data['employees_count'] = int(employees_text.replace(' ', ''))
+            except ValueError:
+                data['employees_count'] = employees_text
+
+        # Address
+        address_label = page.query_selector('div.col-md-4.text-muted:has-text("Aadress")')
+        if address_label:
+            raw_address = page.evaluate("(element) => element.nextElementSibling.innerText", address_label)
+            if raw_address:
+                cleaned_address = raw_address.split("Ava kaart")[0].strip()
+                data['address'] = cleaned_address
+                data['location'] = match_location(cleaned_address)
+
+        browser.close()
+
+    return data
