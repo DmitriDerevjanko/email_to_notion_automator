@@ -1,13 +1,12 @@
-# data_extraction.py
-
 import re
 import logging
 from bs4 import BeautifulSoup
-
 from utils import decode_part
 
-# Extract the email body
+
+# -------- Extract Email Body --------
 def extract_email_body(msg):
+    """Extracts and cleans text from HTML or plain-text emails."""
     body = ""
     if msg.is_multipart():
         for part in msg.walk():
@@ -25,8 +24,10 @@ def extract_email_body(msg):
             body = BeautifulSoup(body, "html.parser").get_text(separator="\n")
         return body
 
-# Extract required data from the email body
+
+# -------- Extract Email Data (company info etc.) --------
 def extract_email_data(body):
+    """Parses structured company and participant data from the email body."""
     email_data = {
         "company_name": "",
         "email_address": "",
@@ -34,6 +35,8 @@ def extract_email_data(body):
         "registration_code": "",
         "industry": "",
         "participant_name": "",
+        "company_origin": "",
+        "helpdesk_topics": "",  
     }
 
     email_pattern = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
@@ -43,14 +46,11 @@ def extract_email_data(body):
         line = line.strip()
         if re.search(
             r"^(Ettevõtte või organisatsiooni nimi|Company or organization name):",
-            line,
-            re.IGNORECASE,
+            line, re.IGNORECASE,
         ):
             email_data["company_name"] = extract_value(line, lines, index)
         elif re.search(r"^(E-post|E-mail):", line, re.IGNORECASE):
-            email_data["email_address"] = extract_value(
-                line, lines, index, pattern=email_pattern
-            )
+            email_data["email_address"] = extract_value(line, lines, index, pattern=email_pattern)
         elif re.search(r"^(Telefoni number|Phone number):", line, re.IGNORECASE):
             email_data["phone_number"] = extract_value(line, lines, index)
         elif re.search(r"^(Registrikood|Registration code):", line, re.IGNORECASE):
@@ -59,16 +59,26 @@ def extract_email_data(body):
             email_data["industry"] = extract_value(line, lines, index)
         elif re.search(
             r"^(Osaleja nimi|Participant name|Name of contact person):",
-            line,
-            re.IGNORECASE,
+            line, re.IGNORECASE,
         ):
             email_data["participant_name"] = extract_value(line, lines, index)
+        elif re.search(
+            r"^(Ettevõtte päritolu|Company origin):",
+            line, re.IGNORECASE,
+        ):
+            email_data["company_origin"] = extract_value(line, lines, index)
+        elif re.search(
+            r"(Mis on peamised teemad.*AI help desk|What are the main topics.*AI help desk)",
+            line, re.IGNORECASE,
+        ):
+            email_data["helpdesk_topics"] = extract_value(line, lines, index)
 
     logging.info(f"Extracted email data: {email_data}")
     return email_data
 
-# Extract the value from a line or from the next line if the current one is empty
+
 def extract_value(line, lines, index, pattern=None):
+    """Extracts value after ':' or from next line."""
     value = line.partition(":")[-1].strip()
     if not value and index + 1 < len(lines):
         next_line = lines[index + 1].strip()
@@ -81,104 +91,91 @@ def extract_value(line, lines, index, pattern=None):
         return match.group() if match else ""
     return value
 
-# Extract the number of services based on the email body
+
+# -------- Extract Service Counts --------
 def extract_service_counts(body, language="et"):
+    """Detects which of the 5 AIRE services were selected in the email."""
     body = body.replace("\n", " ").strip()
     body = body.replace("–", "-").replace("—", "-").replace("−", "-")
 
-    logging.info(f"Processing email body: {body}")  
+    logging.info(f"Processing email body: {body}")
 
     service_counts = {
-        "Digiküpsuse hindamine": 0,
         "Tehisintellekti otstarbekuse nõustamine": 0,
         "Finantseerimise nõustamine – Erakapitali kaasamine": 0,
         "Finantseerimise nõustamine – Avalikud meetmed": 0,
-        "Robotiseerimise nõustamine": 0,
-        "AIRE eelkiirendi": 0,
+        "Koostööpartnerite leidmine": 0,
+        "AI help desk": 0,
     }
 
     logging.info(f"Detected language: {language}")
 
+    # ----- Estonian -----
     if language == "et":
-        if re.search(r"Digik[uü]psuse hindamine", body, re.IGNORECASE):
-            service_counts["Digiküpsuse hindamine"] = 1
-            logging.info("Detected 'Digiküpsuse hindamine' in Estonian email.")
+        # --- Tehisintellekti esmanõustamine (AI help desk) ---
+        if re.search(r"Tehisintellekti\s+esmanõustamine", body, re.IGNORECASE):
+            service_counts["AI help desk"] = 1
+            logging.info("AI help desk (esmanõustamine) detected")
 
-        if re.search(r"Tehisintellekti otstarbekuse nõustamine", body, re.IGNORECASE):
-            ai_match = re.search(r"Projektipõhine AI nõustamine:\s*(\d+)\s*kordne", body)
-            service_counts["Tehisintellekti otstarbekuse nõustamine"] = (
-                int(ai_match.group(1)) if ai_match else 1
-            )
-            logging.info("Detected 'Tehisintellekti otstarbekuse nõustamine' in Estonian email.")
+        # --- Tehisintellekti otstarbekuse nõustamine ---
+        if re.search(r"Tehisintellekti\s+otstarbekuse\s+nõustamine", body, re.IGNORECASE):
+            ai_match = re.search(r"AI nõustamine:\s*(\d+)\s*kordne", body)
+            count = int(ai_match.group(1)) if ai_match else 1
+            service_counts["Tehisintellekti otstarbekuse nõustamine"] = min(count, 2)
+            logging.info(f"AI suitability (otstarbekuse nõustamine) detected: {count}x")
 
-        if re.search(r"AIRE (eel)?kiirendi", body, re.IGNORECASE):
-            service_counts["AIRE eelkiirendi"] = 1
-            logging.info("Detected 'AIRE kiirendi' in Estonian email.")
+        # --- Finantseerimise nõustamine ---
+        if re.search(r"Finantseerimise nõustamine", body, re.IGNORECASE):
+            fin_match = re.search(r"Finantseerimise nõustamine:\s*(\d+)\s*kordne", body)
+            count = int(fin_match.group(1)) if fin_match else 1
+            count = min(count, 2)
+            if re.search(r"Avalikud meetmed", body, re.IGNORECASE):
+                service_counts["Finantseerimise nõustamine – Avalikud meetmed"] = count
+            if re.search(r"Erakapitali kaasamine", body, re.IGNORECASE):
+                service_counts["Finantseerimise nõustamine – Erakapitali kaasamine"] = count
 
-        fin_match = re.search(r"Finantseerimise nõustamine:\s*(\d+)\s*kordne", body)
-        if fin_match:
-            fin_count = int(fin_match.group(1))
-            logging.info(f"Found 'Finantseerimise nõustamine' with {fin_count} service units.")
+        # --- Koostööpartnerite leidmine ---
+        if re.search(r"Koostööpartnerite leidmine", body, re.IGNORECASE):
+            service_counts["Koostööpartnerite leidmine"] = 1
 
-            if re.search(r"Finantseerimise nõustamine.*Erakapitali kaasamine", body, re.IGNORECASE):
-                service_counts["Finantseerimise nõustamine – Erakapitali kaasamine"] = fin_count
-                logging.info("Detected 'Finantseerimise nõustamine – Erakapitali kaasamine' in Estonian email.")
-
-            if re.search(r"Finantseerimise nõustamine.*Avalikud meetmed", body, re.IGNORECASE):
-                service_counts["Finantseerimise nõustamine – Avalikud meetmed"] = fin_count
-                logging.info("Detected 'Finantseerimise nõustamine – Avalikud meetmed' in Estonian email.")
-        else:
-            if "Finantseerimise nõustamine – Erakapitali kaasamine" in body:
-                service_counts["Finantseerimise nõustamine – Erakapitali kaasamine"] = 1
-                logging.info("Detected 'Finantseerimise nõustamine – Erakapitali kaasamine' in Estonian email.")
-
-            if "Finantseerimise nõustamine – Avalikud meetmed" in body:
-                service_counts["Finantseerimise nõustamine – Avalikud meetmed"] = 1
-                logging.info("Detected 'Finantseerimise nõustamine – Avalikud meetmed' in Estonian email.")
-
-        robot_match = re.search(r"Robotiseerimise nõustamine:\s*(\d+)\s*kordne", body, re.IGNORECASE)
-        if robot_match:
-            service_counts["Robotiseerimise nõustamine"] = int(robot_match.group(1))
-            logging.info("Detected 'Robotiseerimise nõustamine' in Estonian email with count.")
-        elif re.search(r"Robotiseerimise otstarbekuse nõustamine", body, re.IGNORECASE):
-            service_counts["Robotiseerimise nõustamine"] = 1
-            logging.info("Detected 'Robotiseerimise nõustamine' in Estonian email without explicit count.")
-
+    # ----- English -----
     elif language == "en":
-
-        if re.search(r"Digital maturity assessment", body, re.IGNORECASE):
-            service_counts["Digiküpsuse hindamine"] = 1
-            logging.info("Detected 'Digital maturity assessment' in English email.")
+        if re.search(r"AI help desk", body, re.IGNORECASE):
+            service_counts["AI help desk"] = 1
+            logging.info("AI help desk detected")
 
         if re.search(r"AI suitability assessment", body, re.IGNORECASE):
-            ai_match = re.search(r"Project-based AI consultancy:\s*(\d+)\s*service units", body, re.IGNORECASE)
-            service_counts["Tehisintellekti otstarbekuse nõustamine"] = (
-                int(ai_match.group(1)) if ai_match else 1
-            )
-            logging.info("Detected 'AI suitability assessment' in English email with count.")
+            ai_match = re.search(r"AI suitability assessment:\s*(two|[\d]+)", body, re.IGNORECASE)
+            if ai_match:
+                val = ai_match.group(1)
+                count = 2 if val.lower() == "two" else int(val)
+            else:
+                count = 1
+            service_counts["Tehisintellekti otstarbekuse nõustamine"] = min(count, 2)
+            logging.info(f"AI suitability assessment detected: {count}x")
 
-        robotics_match = re.search(r"Robotics consultancy\s*(\d+)\s*service units", body, re.IGNORECASE)
-        if robotics_match:
-            service_counts["Robotiseerimise nõustamine"] = int(robotics_match.group(1))
-            logging.info("Detected 'Robotics consultancy' in English email with count.")
-        elif re.search(r"Robotics consultancy", body, re.IGNORECASE):
-            service_counts["Robotiseerimise nõustamine"] = 1
-            logging.info("Detected 'Robotics consultancy' in English email without explicit count.")
+        if re.search(r"Support to find funding", body, re.IGNORECASE):
+            fin_match = re.search(r"Support to find funding:\s*(two|[\d]+)", body, re.IGNORECASE)
+            if fin_match:
+                val = fin_match.group(1)
+                count = 2 if val.lower() == "two" else int(val)
+            else:
+                count = 1
+            count = min(count, 2)
+            if re.search(r"public measures", body, re.IGNORECASE):
+                service_counts["Finantseerimise nõustamine – Avalikud meetmed"] = count
+            if re.search(r"private capital", body, re.IGNORECASE):
+                service_counts["Finantseerimise nõustamine – Erakapitali kaasamine"] = count
 
-        if re.search(r"Finding Sources of funding\s*[-–—−]\s*Private capital", body, re.IGNORECASE):
-            fin_private_match = re.search(r"Finding Sources of funding\s*[-–—−]\s*Private capital.*?(\d+)\s*service units", body, re.IGNORECASE)
-            fin_private_count = int(fin_private_match.group(1)) if fin_private_match else 1
-            service_counts["Finantseerimise nõustamine – Erakapitali kaasamine"] = fin_private_count
-            logging.info("Detected 'Finding Sources of funding – Private capital' in English email with count.")
-
-        if re.search(r"Finding Sources of funding\s*[-–—−]\s*Public measures", body, re.IGNORECASE):
-            fin_public_match = re.search(r"Finding Sources of funding\s*[-–—−]\s*Public measures.*?(\d+)\s*service units", body, re.IGNORECASE)
-            fin_public_count = int(fin_public_match.group(1)) if fin_public_match else 1
-            service_counts["Finantseerimise nõustamine – Avalikud meetmed"] = fin_public_count
-            logging.info("Detected 'Finding Sources of funding – Public measures' in English email with count.")
+        if re.search(r"(Matchmaking|international partnerships)", body, re.IGNORECASE):
+            service_counts["Koostööpartnerite leidmine"] = 1
 
     else:
         logging.warning("Language not supported for service extraction.")
 
-    logging.info(f"Extracted service counts: {service_counts}")
+    # enforce limits
+    for k in service_counts:
+        service_counts[k] = min(service_counts[k], 2 if "nõustamine" in k else 1)
+
+    logging.info(f"Extracted service counts (final): {service_counts}")
     return service_counts

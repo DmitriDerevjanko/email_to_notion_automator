@@ -7,6 +7,8 @@ from notion_utils import (
     normalize_company_name
 )
 from email_notification import send_error_email
+from notion_utils import notify_error_for_relevant_databases
+
 
 from config import (
     ESTONIAN_SUBJECT,
@@ -61,10 +63,11 @@ def process_email(e_id, msg, email_received_date):
         process_email_data(email_data, service_counts, email_received_date, language)
     else:
         logging.warning("Company name is missing in the email data. Skipping email.")
+
 def process_email_data(email_data, service_counts, email_received_date, language):
     logging.info(f"Processing email data: {email_data}")
     try:
-        logging.info("Searching for matching entry in related database.")
+        # === Related DB ===
         related_entry = find_matching_entry_by_registry_code(
             email_data["registration_code"], RELATED_DATABASE_ID, "Registrikood"
         )
@@ -77,31 +80,49 @@ def process_email_data(email_data, service_counts, email_received_date, language
                 email_data["company_name"],
                 email_data["registration_code"],
                 RELATED_DATABASE_ID,
+                email_data=email_data
             )
             logging.info(f"Created new related entry with ID: {related_entry_id}")
 
+        # ❗ STOP if failed
+        if not related_entry_id:
+            msg = f"⛔ Related DB creation failed for {email_data.get('company_name')} ({email_data.get('registration_code')})"
+            logging.error(msg)
+            notify_error_for_relevant_databases(msg, email_data, service_counts)
+            return
+
+        # === Contact ===
         contact_name = email_data.get("participant_name", "")
         if contact_name:
             related_contact = find_matching_contact_by_name(contact_name, PEOPLE_DATABASE_ID)
             if not related_contact:
                 create_new_contact_in_people_database(
-                    name=contact_name,
-                    email_address=email_data.get("email_address", ""),
-                    phone_number=email_data.get("phone_number", ""),
-                    organisation_id=related_entry_id,
-                    people_database_id=PEOPLE_DATABASE_ID
+                    name=email_data["participant_name"],
+                    email=email_data.get("email_address", ""),
+                    phone=email_data.get("phone_number", ""),
+                    org_id=related_entry_id,
+                    db_id=PEOPLE_DATABASE_ID,
                 )
 
+        # === Main DB ===
         include_jrk = any(count > 0 for count in service_counts.values())
-        add_company_to_main_database(
+        main_entry_id = add_company_to_main_database(
             email_data,
             email_received_date,
             related_entry_id,
             service_counts,
             language,
-            include_jrk=include_jrk
+            include_jrk=True
         )
 
+        # ❗ STOP if failed
+        if not main_entry_id:
+            msg = f"⛔ Main DB creation failed for {email_data.get('company_name')} ({email_data.get('registration_code')})"
+            logging.error(msg)
+            notify_error_for_relevant_databases(msg, email_data, service_counts)
+            return
+
+        # === Projects ===
         for service_name, count in service_counts.items():
             if count > 0 and service_name in SERVICE_CONFIG:
                 recipients = DATABASE_RESPONSIBLES.get(
@@ -109,10 +130,15 @@ def process_email_data(email_data, service_counts, email_received_date, language
                     DEFAULT_RECIPIENTS
                 )
                 add_project_to_additional_databases(
-                    service_name, email_data, count, email_received_date, recipients
+                    service_name,
+                    email_data,
+                    count,
+                    email_received_date,
+                    recipients,
+                    main_entry_id
                 )
+
     except Exception as e:
-        error_message = f"An error occurred while processing the email: {str(e)}"
-        recipients = DEFAULT_RECIPIENTS
-        send_error_email(email_data.get("registration_code", ""), error_message, email_data, recipients)
-        logging.error(f"Failed to process email for company {email_data.get('company_name', '')}: {error_message}", exc_info=True)
+        error_message = f"❌ Fatal error while processing email: {e}"
+        logging.error(error_message, exc_info=True)
+        notify_error_for_relevant_databases(error_message, email_data, service_counts)
