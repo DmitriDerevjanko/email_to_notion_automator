@@ -28,6 +28,9 @@ AI_CONSULTANCY_DATABASE_ID = os.getenv("AI_CONSULTANCY_DATABASE_ID")  # Tehisint
 PRIVATE_FUNDING_DATABASE_ID = os.getenv("PRIVATE_FUNDING_DATABASE_ID")  # Finantseerimise nõustamine – Erakapitali kaasamine
 PUBLIC_MEASURES_DATABASE_ID = os.getenv("PUBLIC_MEASURES_DATABASE_ID")  # Finantseerimise nõustamine – Avalikud meetmed
 MATCHMAKING_DATABASE_ID = os.getenv("MATCHMAKING_DATABASE_ID")  # Koostööpartnerite leidmine
+AI_ACT_AWARENESS_DATABASE_ID = os.getenv("AI_ACT_AWARENESS_DATABASE_ID")  # TI määruse nõustamine ja usaldusväärne TI
+EU_AI_ACCESS_DATABASE_ID = os.getenv("EU_AI_ACCESS_DATABASE_ID")  # Ligipääs EL tehisintellekti taristusse
+
 
 # === EMAIL SUBJECTS ===
 ESTONIAN_SUBJECT = os.getenv("ESTONIAN_SUBJECT")
@@ -40,6 +43,8 @@ DATABASE_RESPONSIBLES = {
     PRIVATE_FUNDING_DATABASE_ID: parse_emails("DATABASE_RESPONSIBLES_PRIVATE"),
     PUBLIC_MEASURES_DATABASE_ID: parse_emails("DATABASE_RESPONSIBLES_PUBLIC"),
     MATCHMAKING_DATABASE_ID: parse_emails("DATABASE_RESPONSIBLES_MATCHMAKING"),
+    AI_ACT_AWARENESS_DATABASE_ID: parse_emails("DATABASE_RESPONSIBLES_AI_ACT"),
+    EU_AI_ACCESS_DATABASE_ID: parse_emails("DATABASE_RESPONSIBLES_EU_ACCESS"),
 }
 
 # === DEFAULT EMAILS ===
@@ -74,6 +79,18 @@ SERVICE_CONFIG = {
     "Koostööpartnerite leidmine": {
         "database_id": MATCHMAKING_DATABASE_ID,
         "project_name_template": "{company_name} Koostööpartnerite leidmine {project_count}",
+        "property_name": "TI esmanõustamine",
+    },
+    # --- 🆕 AI Act awareness and responsible AI ---
+    "TI määruse nõustamine ja usaldusväärne TI": {
+        "database_id": AI_ACT_AWARENESS_DATABASE_ID,
+        "project_name_template": "{company_name} TI määruse nõustamine ja usaldusväärne TI {project_count}",
+        "property_name": "TI esmanõustamine",
+    },
+    # --- 🆕 Access to EU AI ecosystem ---
+    "Ligipääs EL tehisintellekti taristusse": {
+        "database_id": EU_AI_ACCESS_DATABASE_ID,
+        "project_name_template": "{company_name} Ligipääs EL tehisintellekti taristusse {project_count}",
         "property_name": "TI esmanõustamine",
     },
 }

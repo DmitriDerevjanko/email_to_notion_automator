@@ -94,7 +94,7 @@ def extract_value(line, lines, index, pattern=None):
 
 # -------- Extract Service Counts --------
 def extract_service_counts(body, language="et"):
-    """Detects which of the 5 AIRE services were selected in the email."""
+    """Detects which of the 7 AIRE services were selected in the email."""
     body = body.replace("\n", " ").strip()
     body = body.replace("–", "-").replace("—", "-").replace("−", "-")
 
@@ -106,6 +106,8 @@ def extract_service_counts(body, language="et"):
         "Finantseerimise nõustamine – Avalikud meetmed": 0,
         "Koostööpartnerite leidmine": 0,
         "AI help desk": 0,
+        "TI määruse nõustamine ja usaldusväärne TI": 0,
+        "Ligipääs EL tehisintellekti taristusse": 0,
     }
 
     logging.info(f"Detected language: {language}")
@@ -138,6 +140,18 @@ def extract_service_counts(body, language="et"):
         if re.search(r"Koostööpartnerite leidmine", body, re.IGNORECASE):
             service_counts["Koostööpartnerite leidmine"] = 1
 
+        # --- 🆕 TI määruse nõustamine ja usaldusväärne TI ---
+        if re.search(r"TI\s+m[äa]ruse\s+n[õo]ustamine.*usaldusv[äa]ärne\s+TI", body, re.IGNORECASE):
+            ti_match = re.search(r"TI\s+m[äa]ruse.*?:\s*(\d+)\s*kordne", body)
+            count = int(ti_match.group(1)) if ti_match else 1
+            service_counts["TI määruse nõustamine ja usaldusväärne TI"] = min(count, 2)
+            logging.info(f"TI määruse nõustamine ja usaldusväärne TI detected: {count}x")
+
+        # --- 🆕 Ligipääs EL tehisintellekti taristusse ---
+        if re.search(r"Ligipääs\s+EL\s+tehisintellekti\s+taristusse", body, re.IGNORECASE):
+            service_counts["Ligipääs EL tehisintellekti taristusse"] = 1
+            logging.info("Ligipääs EL tehisintellekti taristusse detected")
+
     # ----- English -----
     elif language == "en":
         if re.search(r"AI help desk", body, re.IGNORECASE):
@@ -169,6 +183,23 @@ def extract_service_counts(body, language="et"):
 
         if re.search(r"(Matchmaking|international partnerships)", body, re.IGNORECASE):
             service_counts["Koostööpartnerite leidmine"] = 1
+            logging.info("Matchmaking / international partnerships detected")
+
+        # --- 🆕 AI Act awareness and responsible AI ---
+        if re.search(r"AI\s*Act\s*awareness.*responsible\s*AI", body, re.IGNORECASE):
+            act_match = re.search(r"AI\s*Act\s*awareness.*?:\s*(two|[\d]+)", body, re.IGNORECASE)
+            if act_match:
+                val = act_match.group(1)
+                count = 2 if val.lower() == "two" else int(val)
+            else:
+                count = 1
+            service_counts["TI määruse nõustamine ja usaldusväärne TI"] = min(count, 2)
+            logging.info(f"AI Act awareness and responsible AI detected: {count}x")
+
+        # --- 🆕 Access to EU AI ecosystem ---
+        if re.search(r"Access\s+to\s+EU\s+AI\s+ecosystem", body, re.IGNORECASE):
+            service_counts["Ligipääs EL tehisintellekti taristusse"] = 1
+            logging.info("Access to EU AI ecosystem detected")
 
     else:
         logging.warning("Language not supported for service extraction.")

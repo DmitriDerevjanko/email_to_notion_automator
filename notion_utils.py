@@ -595,8 +595,22 @@ def add_company_to_main_database(email_data: dict, email_date: str, related_entr
         regnum_prop = get_actual_property_name(db_id, ["Registration number"])
 
         props = {}
+
+        # --- ✅ ALWAYS Tehisintellekti esmanõustamine with numbering ---
         if project_prop:
-            props[project_prop] = {"title": [{"text": {"content": f"{cname} Tehisintellekti esmanõustamine"}}]}
+            existing_related = find_matching_entry_by_registry_code(
+                email_data.get("registration_code", ""), RELATED_DATABASE_ID, "Registrikood"
+            )
+            related_id = existing_related["id"] if existing_related else None
+
+            next_project_index = get_next_project_index_for_company(
+                MAIN_DATABASE_ID, related_id, "Tehisintellekti esmanõustamine", cname
+            )
+
+            project_title = f"{cname} Tehisintellekti esmanõustamine {next_project_index}"
+            props[project_prop] = {"title": [{"text": {"content": project_title}}]}
+            logging.info(f"🧩 Project name generated: {project_title}")
+
         if date_prop and email_date:
             props[date_prop] = {"date": {"start": email_date}}
         if company_rel_prop and related_entry_id:
@@ -625,7 +639,6 @@ def add_company_to_main_database(email_data: dict, email_date: str, related_entr
                     "rich_text": [{"text": {"content": helpdesk_text[:2000]}}]
                 }
 
-
         if include_jrk and jrk_prop:
             props[jrk_prop] = {"number": next_jrk}
         if contact_id and contact_prop:
@@ -652,6 +665,7 @@ def add_company_to_main_database(email_data: dict, email_date: str, related_entr
         send_error_email(email_data.get("registration_code",""), msg, email_data, recipients)
         logging.error(msg, exc_info=True)
         return None
+
 
 
 # ----------------------------------------------------------------------
