@@ -7,41 +7,56 @@ from config import CC_EMAIL, EMAIL_PASSWORD
 
 def send_error_email(reg_code, error_message, email_data, recipients, database_name=None):
     sender_email = "aire-technical@aire-edih.eu"
-    recipient_emails = recipients 
-    subject = f"Viga Registrikoodiga: {reg_code}"
 
-    if database_name:
-        subject += f" andmebaasis {database_name}"
+    all_recipients = []
+
+    client_email = email_data.get("email_address")
+    if client_email:
+        all_recipients.append(client_email)
+
+    if isinstance(recipients, str):
+        all_recipients.append(recipients)
+    elif isinstance(recipients, list):
+        all_recipients.extend(recipients)
+
+    if CC_EMAIL:
+        all_recipients.append(CC_EMAIL)
+
+    all_recipients = list({email for email in all_recipients if email})
+
+    if not all_recipients:
+        print("No recipients for error email")
+        return
+
+    subject = "Registreerimine ei õnnestunud / Registration failed"
 
     body = f"""
     Tere,
 
-    Kahjuks ilmnes viga ettevõtte andmete töötlemisel.
+    Registreerimine ei õnnestunud, kuna sisestatud registrikood ({reg_code}) ei olnud õige.
+    Palun kontrollige andmeid ja registreerige uuesti.
 
-    Ettevõtte andmed:
-    ----------------------------------------
-    Ettevõtte nimi: {email_data['company_name']}
-    E-posti aadress: {email_data['email_address']}
-    Telefoni number: {email_data['phone_number']}
-    Registrikood: {reg_code}
-    Tööstusharu: {email_data['industry']}
-    Osaleja nimi: {email_data['participant_name']}
-    ----------------------------------------
+    Registrikoodi saab kontrollida Äriregistri veebilehel:
+    https://ariregister.rik.ee/est
 
-    Viga:
-    {error_message}
+    ---
 
-    Palun kontrollige andmeid ja sisestage need käsitsi Notion süsteemi.
+    Hello,
 
-    Lugupidamisega,
-    Tehniline tugi
-    AIRE
+    Registration failed because the provided registration code ({reg_code}) was incorrect.
+    Please review the information and register again.
+
+    You can verify the registration code on the Estonian Business Register website:
+    https://ariregister.rik.ee/eng
+
+    Parimate soovidega / Kind regards,
+    AIRE Technical Support
     """
+
 
     msg = MIMEMultipart()
     msg["From"] = sender_email
-    msg["To"] = ", ".join(recipient_emails)
-    msg["Cc"] = CC_EMAIL
+    msg["To"] = ", ".join(all_recipients)
     msg["Subject"] = subject
 
     msg.attach(MIMEText(body.strip(), "plain"))
@@ -49,11 +64,14 @@ def send_error_email(reg_code, error_message, email_data, recipients, database_n
     try:
         with smtplib.SMTP("smtp.zone.eu", 587) as server:
             server.starttls()
-            server.login(sender_email, EMAIL_PASSWORD) 
-            server.sendmail(sender_email, recipient_emails + [CC_EMAIL], msg.as_string())
-        print(f"Error email sent to {', '.join(recipient_emails)} with CC to {CC_EMAIL}")
+            server.login(sender_email, EMAIL_PASSWORD)
+            server.sendmail(sender_email, all_recipients, msg.as_string())
+
+        print(f"Unified error email sent to: {', '.join(all_recipients)}")
+
     except Exception as e:
-        print(f"Failed to send error email: {e}")
+        print(f"Failed to send unified error email: {e}")
+
 
 def send_success_email(reg_code, email_data, recipients, item_url, database_name):
     sender_email = "aire-technical@aire-edih.eu"

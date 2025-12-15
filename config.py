@@ -19,7 +19,7 @@ EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 NOTION_API_KEY = os.getenv("NOTION_API_KEY")
 
 # === MAIN DATABASES ===
-MAIN_DATABASE_ID = os.getenv("MAIN_DATABASE_ID")  # Tehisintellekti esmanõustamine / AI help desk
+MAIN_DATABASE_ID = os.getenv("MAIN_DATABASE_ID")  # Tehisintellekti üldnõustamine / AI help desk
 RELATED_DATABASE_ID = os.getenv("RELATED_DATABASE_ID")
 PEOPLE_DATABASE_ID = os.getenv("PEOPLE_DATABASE_ID")
 
@@ -29,7 +29,7 @@ PRIVATE_FUNDING_DATABASE_ID = os.getenv("PRIVATE_FUNDING_DATABASE_ID")  # Finant
 PUBLIC_MEASURES_DATABASE_ID = os.getenv("PUBLIC_MEASURES_DATABASE_ID")  # Finantseerimise nõustamine – Avalikud meetmed
 MATCHMAKING_DATABASE_ID = os.getenv("MATCHMAKING_DATABASE_ID")  # Koostööpartnerite leidmine
 AI_ACT_AWARENESS_DATABASE_ID = os.getenv("AI_ACT_AWARENESS_DATABASE_ID")  # TI määruse nõustamine ja usaldusväärne TI
-EU_AI_ACCESS_DATABASE_ID = os.getenv("EU_AI_ACCESS_DATABASE_ID")  # Ligipääs EL tehisintellekti taristusse
+EU_AI_ACCESS_DATABASE_ID = os.getenv("EU_AI_ACCESS_DATABASE_ID")  # Ligipääs EL'i tehisintellekti taristule
 
 
 # === EMAIL SUBJECTS ===
@@ -61,36 +61,36 @@ SERVICE_CONFIG = {
     "Tehisintellekti otstarbekuse nõustamine": {
         "database_id": AI_CONSULTANCY_DATABASE_ID,
         "project_name_template": "{company_name} AI otstarbekuse nõustamine {project_count}",
-        "property_name": "TI esmanõustamine",
+        "property_name": "TI üldnõustamine",
     },
     # --- Public funding support ---
     "Finantseerimise nõustamine – Avalikud meetmed": {
         "database_id": PUBLIC_MEASURES_DATABASE_ID,
         "project_name_template": "{company_name} Avalikud meetmed {project_count}",
-        "property_name": "TI esmanõustamine",
+        "property_name": "TI üldnõustamine",
     },
     # --- Private capital support ---
     "Finantseerimise nõustamine – Erakapitali kaasamine": {
         "database_id": PRIVATE_FUNDING_DATABASE_ID,
         "project_name_template": "{company_name} Erakapitali kaasamine {project_count}",
-        "property_name": "TI esmanõustamine",
+        "property_name": "TI üldnõustamine",
     },
     # --- Matchmaking ---
     "Koostööpartnerite leidmine": {
         "database_id": MATCHMAKING_DATABASE_ID,
         "project_name_template": "{company_name} Koostööpartnerite leidmine {project_count}",
-        "property_name": "TI esmanõustamine",
+        "property_name": "TI üldnõustamine",
     },
     # --- 🆕 AI Act awareness and responsible AI ---
     "TI määruse nõustamine ja usaldusväärne TI": {
         "database_id": AI_ACT_AWARENESS_DATABASE_ID,
         "project_name_template": "{company_name} TI määruse nõustamine ja usaldusväärne TI {project_count}",
-        "property_name": "TI esmanõustamine",
+        "property_name": "TI üldnõustamine",
     },
-    # --- 🆕 Access to EU AI ecosystem ---
-    "Ligipääs EL tehisintellekti taristusse": {
+    # --- 🆕 Access to EU AI infrastructure ---
+    "Ligipääs EL'i tehisintellekti taristule": {
         "database_id": EU_AI_ACCESS_DATABASE_ID,
-        "project_name_template": "{company_name} Ligipääs EL tehisintellekti taristusse {project_count}",
-        "property_name": "TI esmanõustamine",
+        "project_name_template": "{company_name} Ligipääs EL'i tehisintellekti taristule {project_count}",
+        "property_name": "TI üldnõustamine",
     },
 }

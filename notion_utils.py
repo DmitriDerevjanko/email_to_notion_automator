@@ -596,7 +596,7 @@ def add_company_to_main_database(email_data: dict, email_date: str, related_entr
 
         props = {}
 
-        # --- ✅ ALWAYS Tehisintellekti esmanõustamine with numbering ---
+        # --- ✅ ALWAYS Tehisintellekti üldnõustamine with numbering ---
         if project_prop:
             existing_related = find_matching_entry_by_registry_code(
                 email_data.get("registration_code", ""), RELATED_DATABASE_ID, "Registrikood"
@@ -604,10 +604,10 @@ def add_company_to_main_database(email_data: dict, email_date: str, related_entr
             related_id = existing_related["id"] if existing_related else None
 
             next_project_index = get_next_project_index_for_company(
-                MAIN_DATABASE_ID, related_id, "Tehisintellekti esmanõustamine", cname
+                MAIN_DATABASE_ID, related_id, "Tehisintellekti üldnõustamine", cname
             )
 
-            project_title = f"{cname} Tehisintellekti esmanõustamine {next_project_index}"
+            project_title = f"{cname} Tehisintellekti üldnõustamine {next_project_index}"
             props[project_prop] = {"title": [{"text": {"content": project_title}}]}
             logging.info(f"🧩 Project name generated: {project_title}")
 
@@ -898,7 +898,7 @@ def add_project(
             else:
                 logging.warning(f"⚠️ main_entry_id missing for {service_name}, skipping relation link")
 
-            if service_name.lower().strip() in ["ai help desk", "ai helpdesk", "tehisintellekti esmanõustamine"]:
+            if service_name.lower().strip() in ["ai help desk", "ai helpdesk", "tehisintellekti üldnõustamine"]:
                 helpdesk_text = email_data.get("helpdesk_topics", "")
                 if helpdesk_text:
                     prop_name = None
