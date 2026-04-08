@@ -2,6 +2,7 @@ import logging
 import re
 import requests
 import unicodedata
+import time
 from bs4 import BeautifulSoup
 
 from datetime import datetime
@@ -127,46 +128,55 @@ def is_estonian_company(email_data: dict) -> bool:
 # ----------------------------------------------------------------------
 def validate_estonian_company(email_data: dict) -> bool:
     """
-    For Estonian companies:
-      - Check if the Äriregister page exists.
-      - If not, send an error email and stop further processing.
-    For foreign companies: return True.
+    Validates the company using Äriregister.
+    We no longer rely on title/not-found markers; instead, we always open the
+    company page and run the scraper.
+    Returns True if the scraper provides at least one useful field.
+    On error or empty result, sends a notification and returns False.
     """
     if not is_estonian_company(email_data):
         logging.info("🌍 Foreign company — skipping Äriregister/VTA checks.")
         return True
 
-    reg_code = (email_data.get("registration_code") or "").strip()
-    company_name = email_data.get("company_name") or ""
+    raw_code = (email_data.get("registration_code") or "")
+    reg_code = ''.join(ch for ch in raw_code if ch.isdigit()).strip()
+    company_name = (email_data.get("company_name") or "").strip()
 
-    # --- Missing Registrikood ---
-    if not reg_code or not reg_code.isdigit():
-        msg = f"❌ Invalid or missing Registrikood for '{company_name}'. Got: '{reg_code}'"
+    if not reg_code:
+        msg = f"❌ Invalid or missing Registrikood for '{company_name}'. Got: '{raw_code}'"
         logging.error(msg)
-        recipients = get_recipients_for_db(MAIN_DATABASE_ID)
-        send_error_email(reg_code, msg, email_data, recipients)
-        raise ValueError(msg)  
+        send_error_email(raw_code, msg, email_data, get_recipients_for_db(MAIN_DATABASE_ID))
+        return False
 
     try:
-        url = f"https://ariregister.rik.ee/est/company/{reg_code}"
-        resp = requests.get(url, timeout=12)
+        logging.info("🔎 Scraping Äriregister for %s (%s) ...", company_name, reg_code)
+        ext = scrape_ariregister_data_sync(reg_code)
 
-        if resp.status_code == 404 or any(x in resp.text for x in ["Vabandame", "Ei leitud", "not found"]):
-            msg = f"❌ Registration code {reg_code} not found in Äriregister for '{company_name}'."
-            logging.error(msg)
-            recipients = get_recipients_for_db(MAIN_DATABASE_ID)
-            send_error_email(reg_code, msg, email_data, recipients)
-            raise ValueError(msg)
+        # Consider scraped result valid if any of the main fields contain non-empty data
+        useful = any([
+            ext.get("address"),
+            ext.get("main_activity"),
+            ext.get("main_emtak_code"),
+            ext.get("employees_count")
+        ])
 
-        logging.info(f"✅ Äriregister check passed for {company_name} ({reg_code})")
-        return True
+        if useful:
+            logging.info("✅ Äriregister scrape returned data for %s (%s): %s", company_name, reg_code, {k: v for k, v in ext.items() if v})
+            return True
+        else:
+            # Nothing useful scraped - notify and return False
+            preview_msg = f"Empty scrape result for {reg_code} (company: {company_name})."
+            logging.error("❌ " + preview_msg)
+            send_error_email(reg_code, preview_msg, email_data, get_recipients_for_db(MAIN_DATABASE_ID))
+            return False
 
     except Exception as e:
-        msg = f"⚠️ Äriregister validation failed for {reg_code}: {e}"
-        logging.error(msg)
-        recipients = get_recipients_for_db(MAIN_DATABASE_ID)
-        send_error_email(reg_code, msg, email_data, recipients)
-        raise ValueError(msg)
+        msg = f"⚠️ Äriregister scrape failed for {reg_code}: {e}"
+        logging.error(msg, exc_info=True)
+        send_error_email(reg_code, msg, email_data, get_recipients_for_db(MAIN_DATABASE_ID))
+        return False
+
+
 
 
 
@@ -596,7 +606,7 @@ def add_company_to_main_database(email_data: dict, email_date: str, related_entr
 
         props = {}
 
-        # --- ✅ ALWAYS Tehisintellekti üldnõustamine with numbering ---
+        # --- ✅ ALWAYS Tehisintellekti eelnõustamine with numbering ---
         if project_prop:
             existing_related = find_matching_entry_by_registry_code(
                 email_data.get("registration_code", ""), RELATED_DATABASE_ID, "Registrikood"
@@ -604,10 +614,10 @@ def add_company_to_main_database(email_data: dict, email_date: str, related_entr
             related_id = existing_related["id"] if existing_related else None
 
             next_project_index = get_next_project_index_for_company(
-                MAIN_DATABASE_ID, related_id, "Tehisintellekti üldnõustamine", cname
+                MAIN_DATABASE_ID, related_id, "Tehisintellekti eelnõustamine", cname
             )
 
-            project_title = f"{cname} Tehisintellekti üldnõustamine {next_project_index}"
+            project_title = f"{cname} Tehisintellekti eelnõustamine {next_project_index}"
             props[project_prop] = {"title": [{"text": {"content": project_title}}]}
             logging.info(f"🧩 Project name generated: {project_title}")
 
@@ -817,7 +827,7 @@ def add_project(
     Logic:
         – if the company is Estonian and fails Äriregister validation → exit and send an error
         – “Project” titles are numbered sequentially per company in this database
-        – Jrk is calculated locally per company (fallbacks to global if not available)
+        – Jrk is calculated globally in the database (strictly increasing, no per-company reset)
         – for foreign companies, skip VTA/location and set "N/A (foreign)"
         – after each successful creation, send a success email to the recipients of this database.
     """
@@ -854,7 +864,9 @@ def add_project(
         related_contact_id = contact_entry["id"] if contact_entry else None
         logging.info(f"👤 Related contact ID: {related_contact_id}")
 
-        next_jrk = get_company_local_jrk_start(database_id, related_entry_id) if related_entry_id else (get_max_jrk_number(database_id) + 1)
+        # Jrk must be globally unique and monotonic in each service database.
+        # Using per-company local Jrk can produce duplicates when older companies register again later.
+        next_jrk = get_max_jrk_number(database_id) + 1
 
         if foreign:
             location_text = "N/A (foreign)"
@@ -898,7 +910,7 @@ def add_project(
             else:
                 logging.warning(f"⚠️ main_entry_id missing for {service_name}, skipping relation link")
 
-            if service_name.lower().strip() in ["ai help desk", "ai helpdesk", "tehisintellekti üldnõustamine"]:
+            if service_name.lower().strip() in ["ai help desk", "ai helpdesk", "tehisintellekti eelnõustamine"]:
                 helpdesk_text = email_data.get("helpdesk_topics", "")
                 if helpdesk_text:
                     prop_name = None

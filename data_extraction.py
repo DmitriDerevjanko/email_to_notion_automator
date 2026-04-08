@@ -104,20 +104,33 @@ def extract_service_counts(body, language="et"):
         "Tehisintellekti otstarbekuse nõustamine": 0,
         "Finantseerimise nõustamine – Erakapitali kaasamine": 0,
         "Finantseerimise nõustamine – Avalikud meetmed": 0,
+        "Demoprojekt": 0,
         "Koostööpartnerite leidmine": 0,
         "AI help desk": 0,
-        "TI määruse nõustamine ja usaldusväärne TI": 0,
-        "Ligipääs EL'i tehisintellekti taristule": 0,
+        "Usaldusväärne tehisintellekt (TI määruse nõustamine)": 0,
+        "Ligipääs tehisintellekti taristule": 0,
+    }
+
+    # Explicit per-service limits: stable behavior and no accidental duplicates.
+    max_counts = {
+        "Tehisintellekti otstarbekuse nõustamine": 2,
+        "Finantseerimise nõustamine – Erakapitali kaasamine": 2,
+        "Finantseerimise nõustamine – Avalikud meetmed": 2,
+        "Demoprojekt": 1,
+        "Koostööpartnerite leidmine": 1,
+        "AI help desk": 1,
+        "Usaldusväärne tehisintellekt (TI määruse nõustamine)": 1,
+        "Ligipääs tehisintellekti taristule": 1,
     }
 
     logging.info(f"Detected language: {language}")
 
     # ----- Estonian -----
     if language == "et":
-        # --- Tehisintellekti üldnõustamine (AI help desk) ---
-        if re.search(r"Tehisintellekti\s+üldnõustamine", body, re.IGNORECASE):
+        # --- Tehisintellekti eelnõustamine (AI help desk) ---
+        if re.search(r"Tehisintellekti\s+eelnõustamine", body, re.IGNORECASE):
             service_counts["AI help desk"] = 1
-            logging.info("AI help desk (üldnõustamine) detected")
+            logging.info("AI help desk (eelnõustamine) detected")
 
         # --- Tehisintellekti otstarbekuse nõustamine ---
         if re.search(r"Tehisintellekti\s+otstarbekuse\s+nõustamine", body, re.IGNORECASE):
@@ -136,21 +149,34 @@ def extract_service_counts(body, language="et"):
             if re.search(r"Erakapitali kaasamine", body, re.IGNORECASE):
                 service_counts["Finantseerimise nõustamine – Erakapitali kaasamine"] = count
 
+        # --- Demoprojekt ---
+        if re.search(r"\bDemoprojekt\b", body, re.IGNORECASE):
+            service_counts["Demoprojekt"] = 1
+            logging.info("Demoprojekt detected")
+
         # --- Koostööpartnerite leidmine ---
         if re.search(r"Koostööpartnerite leidmine", body, re.IGNORECASE):
             service_counts["Koostööpartnerite leidmine"] = 1
 
-        # --- 🆕 TI määruse nõustamine ja usaldusväärne TI ---
-        if re.search(r"TI\s+m[äa]ruse\s+n[õo]ustamine.*usaldusv[äa]ärne\s+TI", body, re.IGNORECASE):
-            ti_match = re.search(r"TI\s+m[äa]ruse.*?:\s*(\d+)\s*kordne", body)
+        # --- 🆕 Usaldusväärne tehisintellekt (TI määruse nõustamine) ---
+        if re.search(
+            r"Usaldusv[äa]ärne\s+tehisintellekt\s*\(\s*TI\s+m[äa]{2}ruse\s+n[õo]ustamine\s*\)",
+            body,
+            re.IGNORECASE,
+        ):
+            ti_match = re.search(
+                r"Usaldusv[äa]ärne\s+tehisintellekt.*?:\s*(\d+)\s*kordne",
+                body,
+                re.IGNORECASE,
+            )
             count = int(ti_match.group(1)) if ti_match else 1
-            service_counts["TI määruse nõustamine ja usaldusväärne TI"] = min(count, 2)
-            logging.info(f"TI määruse nõustamine ja usaldusväärne TI detected: {count}x")
+            service_counts["Usaldusväärne tehisintellekt (TI määruse nõustamine)"] = min(count, 2)
+            logging.info(f"Usaldusväärne tehisintellekt (TI määruse nõustamine) detected: {count}x")
 
-        # --- 🆕 Ligipääs EL'i tehisintellekti taristule ---
-        if re.search(r"Ligipääs\s+EL'?i\s+tehisintellekti\s+taristule", body, re.IGNORECASE):
-            service_counts["Ligipääs EL'i tehisintellekti taristule"] = 1
-            logging.info("Ligipääs EL'i tehisintellekti taristule detected")
+        # --- 🆕 Ligipääs tehisintellekti taristule ---
+        if re.search(r"Ligipääs\s+tehisintellekti\s+taristule", body, re.IGNORECASE):
+            service_counts["Ligipääs tehisintellekti taristule"] = 1
+            logging.info("Ligipääs tehisintellekti taristule detected")
 
     # ----- English -----
     elif language == "en":
@@ -181,6 +207,10 @@ def extract_service_counts(body, language="et"):
             if re.search(r"private capital", body, re.IGNORECASE):
                 service_counts["Finantseerimise nõustamine – Erakapitali kaasamine"] = count
 
+        if re.search(r"\bDemonstration\s+project\b", body, re.IGNORECASE):
+            service_counts["Demoprojekt"] = 1
+            logging.info("Demonstration project detected")
+
         if re.search(r"(Matchmaking|international partnerships)", body, re.IGNORECASE):
             service_counts["Koostööpartnerite leidmine"] = 1
             logging.info("Matchmaking / international partnerships detected")
@@ -193,21 +223,21 @@ def extract_service_counts(body, language="et"):
                 count = 2 if val.lower() == "two" else int(val)
             else:
                 count = 1
-            service_counts["TI määruse nõustamine ja usaldusväärne TI"] = min(count, 2)
+            service_counts["Usaldusväärne tehisintellekt (TI määruse nõustamine)"] = min(count, 2)
             logging.info(f"AI Act awareness and responsible AI detected: {count}x")
 
         # --- 🆕 Access to EU AI infrastructure ---
         if re.search(r"Access\s+to\s+EU\s+AI\s+infrastructure", body, re.IGNORECASE):
-            service_counts["Ligipääs EL'i tehisintellekti taristule"] = 1
+            service_counts["Ligipääs tehisintellekti taristule"] = 1
             logging.info("Access to EU AI infrastructure detected")
 
 
     else:
         logging.warning("Language not supported for service extraction.")
 
-    # enforce limits
+    # Enforce limits.
     for k in service_counts:
-        service_counts[k] = min(service_counts[k], 2 if "nõustamine" in k else 1)
+        service_counts[k] = min(service_counts[k], max_counts.get(k, 1))
 
     logging.info(f"Extracted service counts (final): {service_counts}")
     return service_counts
