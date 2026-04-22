@@ -208,6 +208,35 @@ def find_matching_entry_by_registry_code(registration_code: str, database_id: st
         return None
 
 
+def find_oldest_entry_by_registry_code(registration_code: str, database_id: str, property_name: str):
+    """Finds the oldest matching entry by registration code in a database."""
+    logging.info(f"Searching oldest entry with {property_name} = {registration_code} in DB {database_id}")
+    try:
+        db = notion.databases.retrieve(database_id=database_id)
+        props = db.get("properties", {})
+        if property_name not in props:
+            raise ValueError(f"Property '{property_name}' not found in DB {database_id}")
+        p_type = props[property_name].get("type")
+
+        if p_type == "number":
+            notion_filter = {"property": property_name, "number": {"equals": int(registration_code)}}
+        elif p_type == "rollup":
+            notion_filter = {"property": property_name, "rollup": {"any": {"number": {"equals": int(registration_code)}}}}
+        else:
+            notion_filter = {"property": property_name, "rich_text": {"equals": str(registration_code)}}
+
+        results = query_all_pages(
+            database_id,
+            filter=notion_filter,
+            sorts=[{"timestamp": "created_time", "direction": "ascending"}],
+        )
+        logging.info(f"Found {len(results)} entries for oldest lookup in {database_id}")
+        return results[0] if results else None
+    except Exception as e:
+        logging.error(f"Error querying oldest entry in DB: {e}", exc_info=True)
+        return None
+
+
 def find_matching_contact_by_name(name: str, db_id: str):
     if not name:
         return None
@@ -553,12 +582,15 @@ def scrape_ariregister_data_sync(registry_code: str) -> dict:
 # MAIN CREATION
 # ----------------------------------------------------------------------
 def add_company_to_main_database(email_data: dict, email_date: str, related_entry_id: str,
-                                 service_counts: dict, language: str, include_jrk: bool = False):
+                                 service_counts: dict, language: str, include_jrk: bool = False,
+                                 create_new_main_registration: bool = False):
     """
     Creates a main record (Main DB) only if:
         – the company is foreign (validation skipped), or
         – the company is Estonian and passed the Äriregister check.
     Sends a success email to the recipients responsible for MAIN_DATABASE_ID.
+    Returns the oldest (first) main entry ID for this company, so service DB relations
+    always stay linked to the first registration.
     """
     db_id = MAIN_DATABASE_ID
     main_entry_id = None
@@ -588,12 +620,18 @@ def add_company_to_main_database(email_data: dict, email_date: str, related_entr
                     PEOPLE_DATABASE_ID,
                 )
 
-        existing = find_matching_entry_by_registry_code(
+        oldest_existing = find_oldest_entry_by_registry_code(
             email_data.get("registration_code", ""), db_id, "Registration number"
         )
-        if existing:
-            logging.info(f"{cname} already exists in Main DB, skipping.")
-            return existing["id"]
+        oldest_main_entry_id = oldest_existing["id"] if oldest_existing else None
+        should_create_main = (oldest_main_entry_id is None) or create_new_main_registration
+
+        if not should_create_main:
+            logging.info(
+                f"{cname} already exists in Main DB and no explicit eelnõustamine registration detected; "
+                f"reusing oldest main entry: {oldest_main_entry_id}"
+            )
+            return oldest_main_entry_id
 
         project_prop = get_actual_property_name(db_id, ["Project", "Projekt"])
         date_prop = get_actual_property_name(db_id, ["Teenusele reg kpv", "Registration date"])
@@ -659,6 +697,9 @@ def add_company_to_main_database(email_data: dict, email_date: str, related_entr
         main_entry_id = new_page["id"]
         logging.info(f"✅ Created Main entry for {cname}: {main_entry_id}")
 
+        if not oldest_main_entry_id:
+            oldest_main_entry_id = main_entry_id
+
         try:
             item_url = new_page.get("url", "")
             db_name = get_database_name(db_id)
@@ -667,7 +708,7 @@ def add_company_to_main_database(email_data: dict, email_date: str, related_entr
         except Exception as email_err:
             logging.error(f"Failed to send main DB success email: {email_err}")
 
-        return main_entry_id
+        return oldest_main_entry_id
 
     except Exception as e:
         msg = f"Failed to add {email_data.get('company_name','(no name)')}: {e}"

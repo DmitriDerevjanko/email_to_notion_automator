@@ -106,13 +106,15 @@ def process_email_data(email_data, service_counts, email_received_date, language
 
         # === Main DB ===
         include_jrk = any(count > 0 for count in service_counts.values())
+        explicit_main_registration = service_counts.get("AI help desk", 0) > 0
         main_entry_id = add_company_to_main_database(
             email_data,
             email_received_date,
             related_entry_id,
             service_counts,
             language,
-            include_jrk=True
+            include_jrk=include_jrk,
+            create_new_main_registration=explicit_main_registration,
         )
 
         # ❗ STOP if failed
