@@ -285,21 +285,27 @@ def get_max_jrk_number(db_id: str) -> int:
 
 def get_company_local_jrk_start(database_id: str, related_company_id: str) -> int:
     """
-    Finds the next Jrk value within the database for a specific company (local maximum),
-    so that numbering remains sequential for each company, not globally.
+    Returns a stable Jrk value for a company within a specific database:
+      - if the company already has entries, reuse its first Jrk
+      - otherwise allocate the next global Jrk in that database
     """
     try:
         results = query_all_pages(
             database_id,
             filter={"property": "Company Name", "relation": {"contains": related_company_id}},
-            sorts=[{"property": "Jrk", "direction": "descending"}],
+            sorts=[{"timestamp": "created_time", "direction": "ascending"}],
         )
         if not results:
             return get_max_jrk_number(database_id) + 1
-        last = results[0]["properties"].get("Jrk", {}).get("number") or 0
-        return int(last) + 1
+
+        for page in results:
+            jrk_value = page["properties"].get("Jrk", {}).get("number")
+            if jrk_value is not None:
+                return int(jrk_value)
+
+        return get_max_jrk_number(database_id) + 1
     except Exception as e:
-        logging.error(f"Error getting local Jrk for company {related_company_id}: {e}")
+        logging.error(f"Error getting stable Jrk for company {related_company_id}: {e}")
         return get_max_jrk_number(database_id) + 1
 
 
@@ -600,9 +606,6 @@ def add_company_to_main_database(email_data: dict, email_date: str, related_entr
             return None
 
         cname = normalize_company_name(email_data.get("company_name") or "")
-        max_jrk = get_max_jrk_number(db_id)
-        next_jrk = (max_jrk or 0) + 1
-        logging.info(f"Next Jrk: {next_jrk}")
 
         contact_id = None
         if email_data.get("participant_name"):
@@ -625,6 +628,18 @@ def add_company_to_main_database(email_data: dict, email_date: str, related_entr
         )
         oldest_main_entry_id = oldest_existing["id"] if oldest_existing else None
         should_create_main = (oldest_main_entry_id is None) or create_new_main_registration
+
+        if related_entry_id:
+            next_jrk = get_company_local_jrk_start(db_id, related_entry_id)
+        else:
+            existing_jrk = (
+                (oldest_existing or {}).get("properties", {}).get("Jrk", {}).get("number")
+                if oldest_existing
+                else None
+            )
+            next_jrk = int(existing_jrk) if existing_jrk is not None else (get_max_jrk_number(db_id) + 1)
+
+        logging.info(f"Stable Jrk for company {cname}: {next_jrk}")
 
         if not should_create_main:
             logging.info(
@@ -868,7 +883,8 @@ def add_project(
     Logic:
         – if the company is Estonian and fails Äriregister validation → exit and send an error
         – “Project” titles are numbered sequentially per company in this database
-        – Jrk is calculated globally in the database (strictly increasing, no per-company reset)
+        – Jrk is stable for each company (same value for all its entries in this database)
+          and increments only when a new company appears
         – for foreign companies, skip VTA/location and set "N/A (foreign)"
         – after each successful creation, send a success email to the recipients of this database.
     """
@@ -905,9 +921,11 @@ def add_project(
         related_contact_id = contact_entry["id"] if contact_entry else None
         logging.info(f"👤 Related contact ID: {related_contact_id}")
 
-        # Jrk must be globally unique and monotonic in each service database.
-        # Using per-company local Jrk can produce duplicates when older companies register again later.
-        next_jrk = get_max_jrk_number(database_id) + 1
+        company_jrk = (
+            get_company_local_jrk_start(database_id, related_entry_id)
+            if related_entry_id
+            else (get_max_jrk_number(database_id) + 1)
+        )
 
         if foreign:
             location_text = "N/A (foreign)"
@@ -938,7 +956,7 @@ def add_project(
                 "Location": {"rich_text": [{"text": {"content": location_text}}]},
                 "Company origin": {"select": {"name": "Foreign" if foreign else "Estonian"}},
                 "VTA kontroll": {"rich_text": [{"text": {"content": vta_text}}]},
-                "Jrk": {"number": next_jrk},
+                "Jrk": {"number": company_jrk},
             }
 
             props = {k: v for k, v in props.items() if v is not None}
@@ -978,8 +996,6 @@ def add_project(
                 recips = get_recipients_for_db(database_id)
                 send_error_email(email_data.get("registration_code", ""), emsg, email_data, recips)
                 logging.error(emsg, exc_info=True)
-
-            next_jrk += 1
 
     except Exception as e:
         logging.error(f"❌ Error in add_project(): {e}", exc_info=True)
