@@ -217,13 +217,10 @@ def extract_service_counts(body, language="et"):
 
         # --- 🆕 AI Act awareness and responsible AI ---
         if re.search(r"AI\s*Act\s*awareness.*responsible\s*AI", body, re.IGNORECASE):
-            act_match = re.search(r"AI\s*Act\s*awareness.*?:\s*(two|[\d]+)", body, re.IGNORECASE)
-            if act_match:
-                val = act_match.group(1)
-                count = 2 if val.lower() == "two" else int(val)
-            else:
-                count = 1
-            service_counts["Usaldusväärne tehisintellekt (TI määruse nõustamine)"] = min(count, 2)
+            # This service is binary in the form (selected / not selected).
+            # Avoid parsing accidental numbers later in the email (e.g. "Registration code: 0").
+            count = 1
+            service_counts["Usaldusväärne tehisintellekt (TI määruse nõustamine)"] = count
             logging.info(f"AI Act awareness and responsible AI detected: {count}x")
 
         # --- 🆕 Access to EU AI infrastructure ---

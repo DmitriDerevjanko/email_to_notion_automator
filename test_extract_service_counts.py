@@ -163,6 +163,20 @@ class ExtractServiceCountsTests(unittest.TestCase):
         self.assertEqual(counts["Usaldusväärne tehisintellekt (TI määruse nõustamine)"], 1)
         self.assert_zero_for_other_services(counts, {"Usaldusväärne tehisintellekt (TI määruse nõustamine)"})
 
+    def test_en_ai_act_is_not_zero_when_registration_code_is_zero(self):
+        body = (
+            "Service: AI help desk Matchmaking and international partnerships "
+            "AI Act awareness and responsible AI "
+            "Participant name: Julien COISNE "
+            "Registration code: 0 "
+            "Company origin: Foregin company/organisation"
+        )
+        counts = extract_service_counts(body, "en")
+
+        self.assertEqual(counts["Usaldusväärne tehisintellekt (TI määruse nõustamine)"], 1)
+        self.assertEqual(counts["AI help desk"], 1)
+        self.assertEqual(counts["Koostööpartnerite leidmine"], 1)
+
     def test_en_eu_access_always_once(self):
         body = "Access to EU AI infrastructure Access to EU AI infrastructure"
         counts = extract_service_counts(body, "en")
